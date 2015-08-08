@@ -1,0 +1,848 @@
+<?php
+/**
+ * Implements hook_requirements().
+ *
+ * @ingroup tripal_gene
+ */
+function tripal_gene_requirements($phase) {
+  $requirements = array();
+  if ($phase == 'install') {
+    // make sure chado is installed
+    if (!$GLOBALS["chado_is_installed"]) {
+      $requirements ['tripal_gene'] = array(
+          'title' => "tripal_gene",
+          'value' => "ERROR: Chado must be installed before this module can be enabled",
+          'severity' => REQUIREMENT_ERROR,
+      );
+    }
+  }
+  return $requirements;
+}
+
+/**
+ * Implements hook_install()
+ * Allows installation of the tripal_gene module
+ */
+
+function tripal_gene_install() {
+  $sql_count ="select count(f.feature_id) as count
+        from feature f left join cvterm cvt
+        on f.type_id=cvt.cvterm_id         
+      where cvt.name = :name";                                 
+                                           
+   $args = array(':name' => 'polypeptide_domain');
+   $result = chado_query($sql_count, $args)->fetchObject();
+   if ($result->count > 0) {
+     // add the materializedviews
+     tripal_gene_add_mview();
+
+     // we want to integrate the materialized views so that they
+     // are available for Drupal Views, upon which our search forms are built
+     tripal_gene_intergrate_view();
+
+     $mview_id =  tripal_get_mview_id('gene2domain');
+     print "\nPopulating gene2domain mview.....\n";
+     tripal_populate_mview($mview_id);
+   } else {
+       // add the materialized view with no domain data
+       tripal_gene_add_domainless_mview();
+
+       // we want to integrate the materialized views so that they
+       // are available for Drupal Views, upon which our search forms are built
+       tripal_gene_intergrate_view();
+   }
+
+   $mview_id =  tripal_get_mview_id('gene');   
+   print "\nPopulating gene mview.....\n";
+   tripal_populate_mview($mview_id);
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function tripal_gene_uninstall() {
+
+  // Drop the MView table if it exists
+  $mview_id =  tripal_get_mview_id('gene');
+  if ($mview_id) {
+    tripal_delete_mview($mview_id);
+  }
+  //Remove views integration
+  // Note: tripal_remove_views_intergration accepts table_name and priority in a key value form. 
+
+  $delete_view=array(
+    'table_name' => 'gene',
+    'priority' => '-1',
+  );
+  tripal_remove_views_integration($delete_view); 
+
+  // Drop the MView table if it exists
+  $mview_id =  tripal_get_mview_id('gene2domain');
+  if ($mview_id) {
+    tripal_delete_mview($mview_id);
+
+    //Remove views integration
+    // Note: tripal_remove_views_intergration accepts table_name and priority in a key value form.
+
+    $delete_view=array(
+      'table_name' => 'gene2domain',
+      'priority' => '-1',
+    );
+    tripal_remove_views_integration($delete_view);
+  }
+}
+
+function tripal_gene_add_domainless_mview(){
+
+  $sql_query="select gene1.*, feature.name as coordinates, familyprop.value as gene_family, noteprop.value as description
+from
+(select
+nf.nid as nid,
+F.feature_id as gene_id,
+O.organism_id,
+Floc.srcfeature_id,
+O.abbreviation,
+O.genus,
+O.species,
+F.name,
+F.uniquename,
+Floc.fmax as stop,
+Floc.fmin as start,
+Floc.strand from feature F,
+featureloc Floc,
+organism O,
+cvterm CVT,
+chado_feature nf,
+cv CV where
+F.feature_id=nf.feature_id and
+F.organism_id=O.organism_id and
+F.feature_id=Floc.feature_id and
+F.type_id=CVT.cvterm_id and
+CVT.name='gene' and
+CVT.cv_id=CV.cv_id and
+CV.name='sequence'
+) as gene1
+inner join feature on
+feature.feature_id=gene1.srcfeature_id
+left join featureprop noteprop on
+noteprop.feature_id=gene1.gene_id and noteprop.type_id=(select cvterm_id from cvterm t, cv where t.name='Note' and t.cv_id=cv.cv_id and cv.name='feature_property')
+left join featureprop familyprop on familyprop.feature_id=gene1.gene_id and familyprop.type_id=(select cvterm_id from cvterm t, cv where t.name='gene family' and t.cv_id=cv.cv_id and cv.name='LIS_properties')";
+
+//Table gene description
+  $schema = array (
+    'table' => 'gene',
+    'fields' => array (
+        'nid' => array(
+            'type' => 'int',
+            'not null' => FASLE,
+        ),
+        'gene_id' => array (
+            'type' => 'int',
+            'not null' => 'FASLE',
+        ),
+        'organism_id' => array (
+            'type' => 'int',
+            'not null' => false,
+        ),
+        'srcfeature_id' => array (
+            'type' => 'int',
+            'not null' => false,
+        ),
+        'abbreviation' => array (
+            'type' => 'text',
+            'not null' => false,
+        ),
+        'genus' => array (
+            'type' => 'text',
+            'not null' => false,
+        ),
+        'species' => array (
+            'type' => 'text',
+            'not null' => false,
+        ),
+        'name' => array (
+            'type' => 'text',
+            'not null' => false,
+        ),
+        'uniquename' => array (
+            'type' => 'text',
+            'not null' => false,
+        ),
+        'stop' => array (
+            'type' => 'int',
+            'not null' => true,
+        ),
+        'start' => array (
+            'type' => 'int',
+            'not null' => true,
+        ),
+        'strand' => array (
+            'type' => 'int',
+            'not null' => true,
+        ),
+        'coordinate' => array (
+            'type' => 'text',
+            'not null' => false,
+        ),
+        'gene_family' => array (
+            'type' => 'text',
+            'not null' => false,
+        ),
+        'description' => array (
+            'type' => 'text',
+            'not null' => false,
+        ),
+        'domains' => array (
+            'type' => 'text',
+            'not null' => false,
+        ),
+    ),
+    'primary key' => array (
+        0 => 'gene_id',
+    ),
+    'indexes' => array (
+        'gene_indx0' => array (
+            0 => 'abbreviation',
+        ),
+        'gene_indx2' => array (
+            0 => 'name',
+        ),
+    ),
+  );
+// add a comment to make sure this view makes sense to the site administator
+  $comment = t('This view is used to provide a table for searching Gene Pages.');
+  tripal_add_mview(
+    'gene', // name of materialized view
+    'tripal_gene', // name of module submitting view
+    $schema, // schema api array representation
+    $sql_query, // sql query that loads the mview
+    $comment );
+}   
+
+
+function tripal_gene_add_mview(){
+
+    $sql_g2d = "select string_agg(DISTINCT(f1.name), E' '), f2.feature_id
+ FROM feature f1
+ JOIN featureloc
+ ON featureloc.feature_id = f1.feature_id
+ JOIN feature_relationship fr1
+ ON fr1.subject_id  = featureloc.srcfeature_id
+ JOIN feature_relationship fr2
+ ON fr1.object_id = fr2.subject_id
+ JOIN feature f2
+ ON fr2.object_id = f2.feature_id
+ JOIN cvterm
+ ON cvterm.cvterm_id = f2.type_id
+ WHERE cvterm.name = 'gene'
+ GROUP BY f2.feature_id";
+    
+    $schema_g2d = array (
+        'table' => 'gene2domain',
+        'fields' => array (
+            'domains' => array (
+                'type' => 'text',
+                'not null' => false,
+            ),
+            'gene_id' => array (
+                'type' => 'int',
+                'not null' => 'FASLE',
+            ), 
+        ),
+        'indexes' => array (
+            'g2d_indx0' => array (
+                0 => 'gene_id',
+            ),
+        ), 
+    );
+
+        // add a comment to make sure this view makes sense to the site administator
+        $comment_g2d = t('This view is used to provide a helper table for mapping genes to domains. 
+                          The view is queried by the gene mview\'s sql so it needs to be created and populated before the population of gene mview.');
+
+        tripal_add_mview(
+            'gene2domain', // name of materialized view
+            'tripal_gene', // name of module submitting view
+            $schema_g2d,      // schema api array representation
+            $sql_g2d,         // sql query that loads the mview
+            $comment_g2d );
+        
+  //Materialized view addition
+  
+  $sql_query="select gene1.*, feature.name as coordinates, familyprop.value as gene_family, noteprop.value as description, g2d.domains as domains 
+    from
+    (select  
+       nf.nid as nid,
+       F.feature_id as gene_id,
+       O.organism_id,             
+       Floc.srcfeature_id,
+       O.abbreviation,
+       O.genus,
+       O.species,
+       F.name,
+       F.uniquename,
+       Floc.fmax as stop,
+       Floc.fmin as start,
+       Floc.strand from feature F,
+       featureloc Floc,
+       organism O,
+       cvterm CVT,
+       chado_feature nf,
+       cv CV where
+       F.feature_id=nf.feature_id and
+       F.organism_id=O.organism_id and
+       F.feature_id=Floc.feature_id and
+       F.type_id=CVT.cvterm_id and
+       CVT.name='gene' and
+       CVT.cv_id=CV.cv_id and
+       CV.name='sequence'    
+   ) as gene1
+  left join gene2domain g2d on 
+  g2d.gene_id = gene1.gene_id                        
+  inner join feature on            
+  feature.feature_id=gene1.srcfeature_id
+  left join featureprop noteprop on
+  noteprop.feature_id=gene1.gene_id and noteprop.type_id=(select cvterm_id from cvterm t, cv where t.name='Note' and t.cv_id=cv.cv_id and cv.name='feature_property')
+  left join featureprop familyprop on familyprop.feature_id=gene1.gene_id and familyprop.type_id=(select cvterm_id from cvterm t, cv where t.name='gene family' and t.cv_id=cv.cv_id and cv.name='LIS_properties')";
+
+    //Table gene description
+
+	$schema = array (
+	  'table' => 'gene',
+	  'fields' => array (
+         'nid' => array(
+          'type' => 'int',
+          'not null' => FASLE,
+         ),
+	    'gene_id' => array (
+	      'type' => 'int',
+	      'not null' => 'FASLE',
+	    ),
+	    'organism_id' => array (
+	      'type' => 'int',
+	      'not null' => false,
+	    ),
+	    'srcfeature_id' => array (
+	      'type' => 'int',
+	      'not null' => false,
+	    ),
+	    'abbreviation' => array (
+	      'type' => 'text',
+	      'not null' => false,
+	    ),
+	    'genus' => array (
+	      'type' => 'text',
+	      'not null' => false,
+	    ),
+	    'species' => array (
+	      'type' => 'text',
+	      'not null' => false,
+	    ),
+	    'name' => array (
+	      'type' => 'text',
+	      'not null' => false,
+	    ),
+	    'uniquename' => array (
+	      'type' => 'text',
+	      'not null' => false,
+	    ),
+	    'stop' => array (
+	      'type' => 'int',
+	      'not null' => true,
+	    ),
+	    'start' => array (
+	      'type' => 'int',
+	      'not null' => true,
+	    ),
+	    'strand' => array (
+	      'type' => 'int',
+	      'not null' => true,
+	    ),
+	    'coordinate' => array (
+	      'type' => 'text',
+	      'not null' => false,
+	    ),
+	    'gene_family' => array (
+	      'type' => 'text',
+	      'not null' => false,
+	    ),
+	    'description' => array (
+	      'type' => 'text',
+	      'not null' => false,
+	    ),
+         'domains' => array (
+             'type' => 'text',
+             'not null' => false,
+         ),
+	  ),
+	  'primary key' => array (
+	    0 => 'gene_id',
+	  ),
+	  'indexes' => array (
+	    'gene_indx0' => array (
+	      0 => 'abbreviation',
+	    ),
+	    'gene_indx2' => array (
+	      0 => 'name',
+	    ),
+	  ),
+	);
+
+   // add a comment to make sure this view makes sense to the site administator
+  $comment = t('This view is used to provide a table for searching Gene Pages.');
+
+  tripal_add_mview(
+    'gene', // name of materialized view
+    'tripal_gene', // name of module submitting view
+    $schema,      // schema api array representation
+    $sql_query,         // sql query that loads the mview
+    $comment );
+}
+
+/**
+ * Integrate the qtl_search materialized view for use by Drupal Views and
+ * our search form
+ */
+
+function tripal_gene_intergrate_view(){
+    $integration_g2d = array (
+        'table' => 'gene2domain',
+        'name' => 'gene2domain',
+        'type' => 'chado',
+        'description' => '',
+        'priority' => '-1',
+        'base_table' => '1',
+        'fields' => array (
+            'gene_id' => array (
+                'name' => 'gene_id',
+                'title' => 'gene_id',
+                'description' => 'Gene ID',
+                'type' => 'int',
+                'handlers' => array (
+                    'filter' => array (
+                        'name' => 'views_handler_filter_numeric',
+                    ),
+                    'field' => array (
+                        'name' => 'views_handler_field_numeric',
+                    ),
+                    'sort' => array (
+                        'name' => 'views_handler_sort',
+                    ),
+                    'argument' => array (
+                        'name' => 'views_handler_argument_numeric',
+                    ),
+                    'relationship' => array (
+                        'name' => 'views_handler_relationship',
+                    ),
+                ),
+                'joins' => array (
+                ),
+            ),
+            'domains' => array (
+                'name' => 'domains',
+                'title' => 'Domains',
+                'description' => 'Domains',
+                'type' => 'text',
+                'handlers' => array (
+                    'filter' => array (
+                        'name' => 'tripal_views_handler_filter_select_string',
+                    ),
+                    'field' => array (
+                        'name' => 'views_handler_field',
+                    ),
+                    'sort' => array (
+                        'name' => 'views_handler_sort',
+                    ),
+                    'argument' => array (
+                        'name' => 'views_handler_argument_string',
+                    ),
+                    'relationship' => array (
+                        'name' => 'views_handler_relationship',
+                    ),
+                ),
+                'joins' => array (
+                ),
+            ),
+        ),
+    );
+    // add the array above that will integrate our qtl_search materialized view
+    // for use with Drupal Views
+    tripal_add_views_integration($integration_g2d);
+        
+
+    $integration = array (
+    'table' => 'gene',
+    'name' => 'gene',
+    'type' => 'chado',
+    'description' => '',
+    'priority' => '-1',
+    'base_table' => '1',
+    'fields' => array (
+      'nid' => array (
+        'name' => 'nid',
+        'title' => 'nid',
+        'description' => 'Node ID',
+        'type' => 'int',
+        'handlers' => array (
+          'filter' => array (
+            'name' => 'views_handler_filter_numeric',
+          ),
+          'field' => array (
+            'name' => 'views_handler_field_numeric',
+          ),
+          'sort' => array (
+            'name' => 'views_handler_sort',
+          ),
+          'argument' => array (
+            'name' => 'views_handler_argument_numeric',
+          ),
+          'relationship' => array (
+            'name' => 'views_handler_relationship',
+          ),
+        ),
+        'joins' => array (
+        ),
+      ),     
+        'gene_id' => array (
+        'name' => 'gene_id',
+        'title' => 'gene_id',
+        'description' => 'Gene ID',
+        'type' => 'int',
+        'handlers' => array (
+          'filter' => array (
+            'name' => 'views_handler_filter_numeric',
+          ),
+          'field' => array (
+            'name' => 'views_handler_field_numeric',
+          ),
+          'sort' => array (
+            'name' => 'views_handler_sort',
+          ),
+          'argument' => array (
+            'name' => 'views_handler_argument_numeric',
+          ),
+          'relationship' => array (
+            'name' => 'views_handler_relationship',
+          ),
+        ),
+        'joins' => array (
+        ),
+      ),
+       'organism_id' => array (
+        'name' => 'organism_id',
+        'title' => 'organism_id',
+        'description' => 'Organism ID',
+        'type' => 'int',
+        'handlers' => array (
+          'filter' => array (
+            'name' => 'views_handler_filter_numeric',
+          ),
+          'field' => array (
+            'name' => 'views_handler_field_numeric',
+          ),
+          'sort' => array (
+            'name' => 'views_handler_sort',
+          ),
+          'argument' => array (
+            'name' => 'views_handler_argument_numeric',
+          ),
+          'relationship' => array (
+            'name' => 'views_handler_relationship',
+          ),
+        ),
+        'joins' => array (
+        ),
+      ),
+
+       'srcfeature_id' => array (
+        'name' => 'srcfeature_id',
+        'title' => 'srcfeature_id',
+        'description' => 'srcfeature ID',
+        'type' => 'int',
+        'handlers' => array (
+          'filter' => array (
+            'name' => 'views_handler_filter_numeric',
+          ),
+          'field' => array (
+            'name' => 'views_handler_field_numeric',
+          ),
+          'sort' => array (
+            'name' => 'views_handler_sort',
+          ),
+          'argument' => array (
+            'name' => 'views_handler_argument_numeric',
+          ),
+          'relationship' => array (
+            'name' => 'views_handler_relationship',
+          ),
+        ),
+        'joins' => array (
+        ),
+      ),
+
+      'abbreviation' => array (
+        'name' => 'abbreviation',
+        'title' => 'Common Name',
+        'description' => 'Common name',
+        'type' => 'text',
+        'handlers' => array (
+          'filter' => array (
+            'name' => 'tripal_views_handler_filter_select_string',
+          ),
+          'field' => array (
+            'name' => 'views_handler_field',
+          ),
+          'sort' => array (
+            'name' => 'views_handler_sort',
+          ),
+          'argument' => array (
+            'name' => 'views_handler_argument_string',
+          ),
+          'relationship' => array (
+            'name' => 'views_handler_relationship',
+          ),
+        ),
+        'joins' => array (
+        ),
+      ),
+
+      'name' => array (
+        'name' => 'name',
+        'title' => 'Name',
+        'description' => 'Name',
+        'type' => 'text',
+        'handlers' => array (
+          'filter' => array (
+            'name' => 'tripal_views_handler_filter_select_string',
+          ),
+          'field' => array (
+            'name' => 'views_handler_field',
+          ),
+          'sort' => array (
+            'name' => 'views_handler_sort',
+          ),
+          'argument' => array (
+            'name' => 'views_handler_argument_string',
+          ),
+          'relationship' => array (
+            'name' => 'views_handler_relationship',
+          ),
+        ),
+        'joins' => array (
+        ),
+      ),
+   
+      'uniquename' => array (
+        'name' => 'uniquename',
+        'title' => 'Uniquename',
+        'description' => 'uniquename',
+        'type' => 'text',
+        'handlers' => array (
+          'filter' => array (
+            'name' => 'tripal_views_handler_filter_select_string',
+          ),
+          'field' => array (
+            'name' => 'views_handler_field',
+          ),
+          'sort' => array (
+            'name' => 'views_handler_sort',
+          ),
+          'argument' => array (
+            'name' => 'views_handler_argument_string',
+          ),
+          'relationship' => array (
+            'name' => 'views_handler_relationship',
+          ),
+        ),
+        'joins' => array (
+        ),
+      ),
+
+      'coordinate' => array (
+        'name' => 'coordinate',
+        'title' => 'Coordinate',
+        'description' => 'coordinate',
+        'type' => 'text',
+        'handlers' => array (
+          'filter' => array (
+            'name' => 'tripal_views_handler_filter_select_string',
+          ),
+          'field' => array (
+            'name' => 'views_handler_field',
+          ),
+          'sort' => array (
+            'name' => 'views_handler_sort',
+          ),
+          'argument' => array (
+            'name' => 'views_handler_argument_string',
+          ),
+          'relationship' => array (
+            'name' => 'views_handler_relationship',
+          ),
+        ),
+        'joins' => array (
+        ),
+      ),
+   
+      'description' => array (
+        'name' => 'description',
+        'title' => 'description',
+        'description' => 'description',
+        'type' => 'text',
+        'handlers' => array (
+          'filter' => array (
+            'name' => 'tripal_views_handler_filter_select_string',
+          ),
+          'field' => array (
+            'name' => 'views_handler_field',
+          ),
+          'sort' => array (
+            'name' => 'views_handler_sort',
+          ),
+          'argument' => array (
+            'name' => 'views_handler_argument_string',
+          ),
+          'relationship' => array (
+            'name' => 'views_handler_relationship',
+          ),
+        ),
+        'joins' => array (
+        ),
+      ),
+
+      'gene_family' => array (
+        'name' => 'gene_family',
+        'title' => 'gene_family',
+        'description' => 'gene_family',
+        'type' => 'text',
+        'handlers' => array (
+          'filter' => array (
+            'name' => 'tripal_views_handler_filter_select_string',
+          ),
+          'field' => array (
+            'name' => 'views_handler_field',
+          ),
+          'sort' => array (
+            'name' => 'views_handler_sort',
+          ),
+          'argument' => array (
+            'name' => 'views_handler_argument_string',
+          ),
+          'relationship' => array (
+            'name' => 'views_handler_relationship',
+          ),
+        ),
+        'joins' => array (
+        ),
+      ),
+
+      'stop' => array (
+        'name' => 'stop',
+        'title' => 'END',
+        'description' => 'stop',
+        'type' => 'int',
+        'handlers' => array (
+          'filter' => array (
+            'name' => 'tripal_views_handler_filter_select_string',
+          ),
+          'field' => array (
+            'name' => 'views_handler_field',
+          ),
+          'sort' => array (
+            'name' => 'views_handler_sort',
+          ),
+          'argument' => array (
+            'name' => 'views_handler_argument_string',
+          ),
+          'relationship' => array (
+            'name' => 'views_handler_relationship',
+          ),
+        ),
+        'joins' => array (
+        ),
+      ),
+
+        'start' => array (
+        'name' => 'start',
+        'title' => 'START',
+        'description' => 'start',
+        'type' => 'int',
+        'handlers' => array (
+          'filter' => array (
+            'name' => 'tripal_views_handler_filter_select_string',
+          ),
+          'field' => array (
+            'name' => 'views_handler_field',
+          ),
+          'sort' => array (
+            'name' => 'views_handler_sort',
+          ),
+          'argument' => array (
+            'name' => 'views_handler_argument_string',
+          ),
+          'relationship' => array (
+            'name' => 'views_handler_relationship',
+          ),
+        ),
+        'joins' => array (
+        ),
+      ),
+
+      'domains' => array (
+          'name' => 'domains',
+          'title' => 'Domains',
+          'description' => 'Domains',
+          'type' => 'text',
+          'handlers' => array (
+              'filter' => array (
+                  'name' => 'tripal_views_handler_filter_select_string',
+              ),
+              'field' => array (
+                  'name' => 'views_handler_field',
+              ),
+              'sort' => array (
+                  'name' => 'views_handler_sort',
+              ),
+              'argument' => array (
+                  'name' => 'views_handler_argument_string',
+              ),
+              'relationship' => array (
+                  'name' => 'views_handler_relationship',
+              ),
+          ),
+          'joins' => array (
+          ),
+       ),
+
+      'strand' => array (
+        'name' => 'strand',
+        'title' => 'strand',
+        'description' => 'strand',
+        'type' => 'int',
+        'handlers' => array (
+          'filter' => array (
+            'name' => 'tripal_views_handler_filter_select_string',
+          ),
+          'field' => array (
+            'name' => 'views_handler_field',
+          ),
+          'sort' => array (
+            'name' => 'views_handler_sort',
+          ),
+          'argument' => array (
+            'name' => 'views_handler_argument_string',
+          ),
+          'relationship' => array (
+            'name' => 'views_handler_relationship',
+          ),
+        ),
+        'joins' => array (
+        ),
+      ),
+    ), 
+  );
+// add the array above that will integrate our qtl_search materialized view
+  // for use with Drupal Views
+  tripal_add_views_integration($integration);
+
+}

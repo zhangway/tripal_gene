@@ -119,7 +119,7 @@ SQL;
 
             if ($gene) {
                 $node = node_load($gene->nid);
-                lightshop_add2basket($node);
+                lightshop_add2basket($node, $gene);
             }
   }
   //drupal_set_message(print_r($results, 1));

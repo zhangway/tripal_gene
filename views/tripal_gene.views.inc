@@ -15,7 +15,7 @@ function tripal_gene_views_data_alter(&$data) {
 
 function tripal_gene_views_pre_view() {
     // op = Add all genes to Basket should not be passed via pager links:
-    if($_GET["op"] == "Add all genes to Basket") {
+    if($_GET['op'] == "Add all genes to Basket") {
         $_GET = drupal_get_query_parameters($_GET, array('submit_basket', 'op'));
     }
 }

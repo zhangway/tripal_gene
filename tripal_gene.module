@@ -119,8 +119,7 @@ SQL;
 
             if ($gene) {
                 $node = node_load($gene->nid);
-                $type = 'ajax'
-                lightshop_add2basket($node, $type);
+                lightshop_add2basket($node);
             }
   }
   //drupal_set_message(print_r($results, 1));

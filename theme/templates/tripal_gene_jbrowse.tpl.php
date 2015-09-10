@@ -4,7 +4,7 @@ function file2arr($file) {
       print "Alias file '$file' not found in ".getcwd() .". Please create alias file.</br>";
       return false;
     }
-    $arr = [];
+    $arr = array();
     $fp = fopen($file,"r");
     while (false != ($line = fgets($fp,4096))) {
         if (!preg_match("/.+\s.+/",$line,$match)) continue;

@@ -1,8 +1,7 @@
 name = Tripal Gene
 description = Supports the gene_search table of Chado by providing pages for viewing and searching of genes. 
 core = 7.x
-biomaterial = tripal_gene
-package = Tripal
+package = Tripal Extensions
 configure = admin/tripal/chado/tripal_gene
 
 version = 7.x-2.0-rc1
@@ -12,6 +11,9 @@ dependencies[] = tripal_organism
 dependencies[] = tripal_cv
 dependencies[] = tripal_db
 
+stylesheets[all][] = theme/css/tripal_gene.css
+
 files[]=views/tripal_gene.views.inc
 files[]=views/tripal_gene_views_handler_field_actions.inc
 files[]=views/tripal_gene.views_default.inc
+

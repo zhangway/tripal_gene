@@ -15,7 +15,7 @@ class tripal_gene_views_handler_field_actions extends views_handler_field {
   function render($values) {
 
       foreach ($values as $key => $val) {
-          if ($key == "gene_name") {
+          if ($key == "gene_uniquename") {
 
               $sql =<<<SQL
               select g.*, 
@@ -23,7 +23,7 @@ class tripal_gene_views_handler_field_actions extends views_handler_field {
               from chado.gene g, 
                    public.chado_feature chf 
               where g.gene_id = chf.feature_id 
-              and g.name = :name
+              and g.uniquename = :name
 SQL;
 
               $args = array(':name' => $val);               
@@ -39,3 +39,4 @@ SQL;
     }
 
 }
+

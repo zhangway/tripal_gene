@@ -16,23 +16,23 @@ require_once 'includes/tripal_gene.chado_node.inc';
 function tripal_gene_permission() {
   return array(
     'access chado_gene content' => array(
-      'title' => t('View GENES'),
+      'title' => t('View Genes'),
       'description' => t('Allow users to view gene pages.'),
     ),
     'create chado_gene content' => array(
-      'title' => t('Create GENE'),
+      'title' => t('Create Gene'),
       'description' => t('Allow users to create new gene pages.'),
     ),
     'delete chado_gene content' => array(
-      'title' => t('Delete GENE'),
+      'title' => t('Delete Gene'),
       'description' => t('Allow users to delete gene pages.'),
     ),
     'edit chado_gene content' => array(
-      'title' => t('Edit GENE'),
+      'title' => t('Edit Gene'),
       'description' => t('Allow users to edit gene pages.'),
     ),
     'administer tripal gene' => array(
-      'title' => t('Administer GENE'),
+      'title' => t('Administer Gene'),
       'description' => t('Allow users to administer all genes.'),
     ),
   );
@@ -60,7 +60,7 @@ function tripal_gene_menu() {
 
   $items['admin/tripal/chado/tripal_gene/help'] = array(
     'title' => 'Help',
-    'description' => "A description of the Tripal gene_search module including a short description of it's usage.",
+    'description' => "Help for using the gene module",
     'page callback' => 'theme',
     'page arguments' => array('tripal_gene_help'),
     'access arguments' => array('administer tripal gene'),
@@ -79,6 +79,7 @@ function tripal_gene_menu() {
   return $items;
 }
 
+
 /**
  * Implements hook_views_api().
  *
@@ -96,6 +97,10 @@ function tripal_gene_views_api() {
   );
 }
 
+
+/**
+ * tripal_gene_add_all_handler()
+ */
 function tripal_gene_add_all_handler($form, &$form_state) {
   module_load_include('inc', 'geneshop', 'geneshop.pages');
 
@@ -106,23 +111,20 @@ function tripal_gene_add_all_handler($form, &$form_state) {
   $results = $view->result;
 
   foreach ($results as $res) {
-            $sql =<<<SQL
-                select g.*,
-                   chf.nid
-                from   chado.gene g,
-                   public.chado_feature chf
-            where  g.gene_id = chf.feature_id
-                   and g.name = :name
+    $sql =<<<SQL
+        SELECT g.*, chf.nid
+        FROM chado.gene g, public.chado_feature chf
+        WHERE g.gene_id = chf.feature_id AND g.name = :name
 SQL;
-            $args = array(':name' => $res->gene_name);
-            $gene = chado_query($sql, $args)->fetchObject();
+    $args = array(':name' => $res->gene_name);
+    $gene = chado_query($sql, $args)->fetchObject();
 
-            if ($gene) {
-                $node = node_load($gene->nid);
+    if ($gene) {
+      $node = node_load($gene->nid);
                 geneshop_add2basket($node);
-            }
+    }
   }
-  //drupal_set_message(print_r($results, 1));
+  
   return;
 }
 
@@ -137,27 +139,34 @@ SQL;
  * @ingroup tripal_organism
  */
 function tripal_gene_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id == 'views_exposed_form' && strstr($form['#id'], 'gene')) { 
+    $form['#validate'][] = 'tripal_gene_form_validate'; 
+
+    // Change default value for submit button
+    $form['submit']['#value'] = 'Search';
+  }
 
   $form['#method'] = 'post';
   switch ($form_id) {
     case 'chado_gene_node_form':
       // turn of preview button for insert/updates
       $form['actions']['preview']['#access'] = FALSE;
+      
       //remove the body field
       unset($form['body']);
       break;
     case 'views_exposed_form':
       if ($form['#id'] == 'views-exposed-form-gene-page') {
-          // Add a button
-
-          $form['submit_basket']['#type'] = 'submit';
-          $form['submit_basket']['#value'] = t('Add all genes to Basket');
-          $form['submit_basket']['#submit'] = array('tripal_gene_add_all_handler', 'views_exposed_form_submit');
-          $form['submit_basket']['#executes_submit_callback'] = 1;
+        // Add a button
+        $form['submit_basket']['#type'] = 'submit';
+        $form['submit_basket']['#value'] = t('Add all genes to Basket');
+        $form['submit_basket']['#submit'] = array('tripal_gene_add_all_handler', 'views_exposed_form_submit');
+        $form['submit_basket']['#executes_submit_callback'] = 1;
       }
       break;
   } //switch
 }
+
 
 
 /**
@@ -172,6 +181,7 @@ function tripal_gene_help ($path, $arg) {
   }
 }
 
+
 /**
  *  Implements hook_theme().
  *
@@ -182,26 +192,39 @@ function tripal_gene_help ($path, $arg) {
  * @ingroup tripal_organism
  */
 function tripal_gene_theme($existing, $type, $theme, $path) {
-  $core_path = drupal_get_path('module', 'tripal_core');
+  $path = drupal_get_path('module', 'tripal_gene');
 
   $items = array(
-    'node__chado_gene' => array(
-      'template' => 'node--chado-generic',
-      'render element' => 'node',
-      'base hook' => 'node',
-      'path' => "$core_path/theme/templates",
-    ),
-    'tripal_gene_description' => array(
+    'tripal_gene_base' => array(
       'variables' => array('node' => NULL),
-      'template' => 'tripal_gene_description',
+      'template' => 'tripal_gene_base',
       'path' => "$path/theme/templates",
     ),
-    'tripal_gene_jbrowse' => array(
-        'variables' => array('node' => NULL),
-        'template' => 'tripal_gene_jbrowse',
-        'path' => "$path/theme/templates",
+    'tripal_gene_sequence' => array(
+      'variables' => array('node' => NULL),
+      'template' => 'tripal_gene_sequence',
+      'path' => "$path/theme/templates",
     ),
   );
  
   return $items;
 }
+
+
+/**
+  * Form validator for search form.
+  *
+  * Use this to trim whitespace from text fields.
+  */
+function tripal_gene_form_validate($form, &$form_state) { 
+  if (isset($form_state['values']['domains']))
+    $form_state['values']['domains']     = trim($form_state['values']['domains']); 
+  if (isset($form_state['values']['description']))
+    $form_state['values']['description'] = trim($form_state['values']['description']); 
+  if (isset($form_state['values']['gene_family']))
+    $form_state['values']['gene_family'] = trim($form_state['values']['gene_family']); 
+  if (isset($form_state['values']['name']))
+    $form_state['values']['name']        = trim($form_state['values']['name']); 
+}
+  
+
